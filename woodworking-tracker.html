@@ -1,0 +1,393 @@
+﻿<!DOCTYPE html>
+<html lang="nl">
+<head><meta name="ms-sp-authoring-source" content="agent">
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Houtbewerkingsprojecten</title>
+<style>
+  :root{--wood:#8b5a2b;--wood-d:#5e3b1a;--bg:#f7f2ea;--card:#fff;--muted:#7a6a58;--ok:#2e7d32;--bad:#c62828;--line:#e6dccd}
+  *{box-sizing:border-box}
+  body{margin:0;font-family:Segoe UI,Roboto,Arial,sans-serif;background:var(--bg);color:#2b2118}
+  header{background:var(--wood-d);color:#fff;padding:12px 16px;display:flex;align-items:center;gap:12px;flex-wrap:wrap}
+  header h1{font-size:1.15rem;margin:0;flex:1}
+  header button{background:transparent;border:1px solid #fff6;color:#fff}
+  main{max-width:1000px;margin:0 auto;padding:16px}
+  .card{background:var(--card);border:1px solid var(--line);border-radius:10px;padding:16px;margin-bottom:16px}
+  h2{margin:0 0 12px;font-size:1.1rem;color:var(--wood-d)}
+  h3{margin:16px 0 8px;font-size:1rem;color:var(--wood-d)}
+  button{cursor:pointer;border:none;border-radius:6px;padding:8px 14px;font-size:.92rem;background:var(--wood);color:#fff}
+  button.sec{background:#efe6d8;color:#3b2a1a}
+  button.danger{background:var(--bad)}
+  button.ok{background:var(--ok)}
+  button.small{padding:4px 8px;font-size:.8rem}
+  input,select,textarea{font:inherit;padding:7px 9px;border:1px solid #cdbfa9;border-radius:6px;width:100%;background:#fff}
+  label{font-size:.8rem;color:var(--muted);display:block;margin-bottom:3px}
+  .grid{display:grid;gap:10px;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));align-items:end}
+  table{width:100%;border-collapse:collapse;font-size:.9rem}
+  th,td{text-align:left;padding:7px 6px;border-bottom:1px solid var(--line)}
+  th{color:var(--muted);font-weight:600;font-size:.8rem}
+  td.num,th.num{text-align:right}
+  .tabs{display:flex;gap:6px;flex-wrap:wrap;margin-bottom:12px}
+  .tabs button{background:#efe6d8;color:#3b2a1a}
+  .tabs button.active{background:var(--wood);color:#fff}
+  .timer{font-size:2.6rem;font-variant-numeric:tabular-nums;font-weight:600;color:var(--wood-d);text-align:center;margin:8px 0}
+  .timer-box{text-align:center}
+  .timer-box button{font-size:1.1rem;padding:12px 28px}
+  .pill{display:inline-block;padding:2px 8px;border-radius:20px;font-size:.75rem;background:#efe6d8}
+  .pill.run{background:#ffe0b2;color:#a64b00;animation:pulse 1.5s infinite}
+  .pill.fin{background:#c8e6c9;color:#1b5e20}
+  @keyframes pulse{50%{opacity:.55}}
+  .proj{display:flex;justify-content:space-between;align-items:center;gap:10px;padding:12px;border:1px solid var(--line);border-radius:8px;margin-bottom:8px;cursor:pointer;background:#fffdf9}
+  .proj:hover{border-color:var(--wood)}
+  .muted{color:var(--muted);font-size:.85rem}
+  .totals{display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:10px}
+  .tot{background:#faf5ee;border:1px solid var(--line);border-radius:8px;padding:10px}
+  .tot b{display:block;font-size:1.15rem;color:var(--wood-d)}
+  .row-actions{white-space:nowrap}
+  .hidden{display:none}
+  /* Invoice */
+  #invoice{background:#fff;padding:32px;border:1px solid var(--line);border-radius:8px;color:#000}
+  #invoice .inv-head{display:flex;justify-content:space-between;gap:20px;flex-wrap:wrap}
+  #invoice h1{margin:0;color:var(--wood-d);font-size:1.8rem}
+  #invoice table{margin-top:6px}
+  #invoice .sum td{border:none;padding:3px 6px}
+  #invoice .grand td{font-weight:700;font-size:1.1rem;border-top:2px solid #000}
+  @media print{
+    body{background:#fff}
+    body *{visibility:hidden}
+    #invoice,#invoice *{visibility:visible}
+    #invoice{position:absolute;left:0;top:0;width:100%;border:none;padding:0}
+  }
+</style>
+</head>
+<body>
+<header>
+  <h1>🪵 Houtbewerkingsprojecten</h1>
+  <button onclick="go('list')">Projecten</button>
+  <button onclick="go('settings')">Instellingen</button>
+</header>
+<main id="app"></main>
+
+<script>
+/* ================= DATA ================= */
+const KEY='woodTracker_v1';
+const store=(()=>{
+  const memory={};
+  try{
+    const s=window.localStorage,test='__woodtracker_test__';
+    s.setItem(test,'1');s.removeItem(test);
+    return s;
+  }catch(e){
+    return {getItem:k=>memory[k]??null,setItem:(k,v)=>{memory[k]=String(v)}};
+  }
+})();
+const uid=()=>Date.now().toString(36)+Math.random().toString(36).slice(2,7);
+const defaults={settings:{bizName:'',bizAdres:'',bizVat:'',bizIban:'',bizEmail:'',bizTelefoon:'',
+  defaultRate:35,vatPct:21,currency:'€',rounding:0,invoicePrefix:'INV-',nextInvoiceNo:1,paymentDays:30,
+  footer:'Bedankt voor uw vertrouwen!'},projects:[]};
+let state=load();
+let view={page:'list',projectId:null,tab:'time',editSession:null};
+
+function load(){try{const s=JSON.parse(store.getItem(KEY));if(s)return{...defaults,...s,settings:{...defaults.settings,...s.settings}}}catch(e){}return structuredClone(defaults)}
+function save(){store.setItem(KEY,JSON.stringify(state))}
+const P=()=>state.projects.find(p=>p.id===view.projectId);
+const esc=s=>String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+const money=n=>state.settings.currency+' '+(Number(n)||0).toFixed(2).replace('.',',');
+const num=v=>parseFloat(String(v).replace(',','.'))||0;
+
+/* ================= CALCULATIONS ================= */
+function sessionMs(s){
+  let ms=(s.end||Date.now())-s.start;
+  const r=num(state.settings.rounding);
+  if(r>0&&s.end){const step=r*60000;ms=Math.ceil(ms/step)*step}
+  return Math.max(0,ms);
+}
+function calc(p){
+  const ms=p.sessions.reduce((a,s)=>a+sessionMs(s),0)+(p.activeStart?Date.now()-p.activeStart:0);
+  const hours=ms/3600000;
+  const rate=p.rate!==''&&p.rate!=null?num(p.rate):num(state.settings.defaultRate);
+  const labor=hours*rate;
+  const markup=num(p.materialMarkup);
+  const matCost=p.materials.reduce((a,m)=>a+num(m.qty)*num(m.price),0);
+  const matBilled=matCost*(1+markup/100);
+  const equip=p.equipment.reduce((a,e)=>a+num(e.qty)*num(e.price),0);
+  const extra=p.extras.reduce((a,e)=>a+num(e.qty)*num(e.price),0);
+  const discount=num(p.discount);
+  const subtotal=labor+matBilled+equip+extra-discount;
+  const vatPct=num(state.settings.vatPct);
+  const vat=subtotal*vatPct/100;
+  const deposit=num(p.deposit);
+  return{ms,hours,rate,labor,matCost,matBilled,markup,equip,extra,discount,subtotal,vatPct,vat,total:subtotal+vat,deposit,due:subtotal+vat-deposit};
+}
+const fmtDur=ms=>{const t=Math.floor(ms/1000);return[Math.floor(t/3600),Math.floor(t%3600/60),t%60].map((v,i)=>i?String(v).padStart(2,'0'):v).join(':')};
+const fmtH=ms=>{const m=Math.round(ms/60000);return`${Math.floor(m/60)}h ${String(m%60).padStart(2,'0')}m`};
+const fmtDate=t=>new Date(t).toLocaleDateString('nl-BE');
+const fmtTime=t=>new Date(t).toLocaleTimeString('nl-BE',{hour:'2-digit',minute:'2-digit'});
+
+/* ================= NAVIGATION ================= */
+function go(page,id){view.page=page;if(id)view.projectId=id;if(page==='project'&&!id){} view.editSession=null;render()}
+function setTab(t){view.tab=t;render()}
+
+/* ================= RENDER ================= */
+function render(){
+  const app=document.getElementById('app');
+  if(view.page==='settings')app.innerHTML=renderSettings();
+  else if(view.page==='project'&&P())app.innerHTML=renderProject(P());
+  else app.innerHTML=renderList();
+}
+
+function renderList(){
+  const act=state.projects.filter(p=>p.status!=='finished'),fin=state.projects.filter(p=>p.status==='finished');
+  const item=p=>{const c=calc(p);return`<div class="proj" onclick="go('project','${p.id}')">
+    <div><b>${esc(p.name)}</b> ${p.activeStart?'<span class="pill run">⏱ actief</span>':''}${p.status==='finished'?`<span class="pill fin">${esc(p.invoiceNo)}</span>`:''}
+    <div class="muted">${esc(p.client||'Geen klant')} · ${fmtH(c.ms)} · aangemaakt ${fmtDate(p.created)}</div></div>
+    <div style="text-align:right"><b>${money(c.total)}</b><div class="muted">incl. btw</div></div></div>`};
+  return`<div class="card"><h2>Nieuw project</h2>
+    <div class="grid"><div><label>Projectnaam *</label><input id="np-name" placeholder="bijv. Afzelia tuinpoort"></div>
+    <div><label>Klant</label><input id="np-client" placeholder="Klantnaam"></div>
+    <div><button onclick="addProject()">+ Project maken</button></div></div></div>
+  <div class="card"><h2>Actieve projecten (${act.length})</h2>${act.map(item).join('')||'<p class="muted">Nog geen actieve projecten.</p>'}</div>
+  <div class="card"><h2>Afgerond / gefactureerd (${fin.length})</h2>${fin.map(item).join('')||'<p class="muted">Nog geen projecten.</p>'}</div>
+  <div class="card"><h2>Back-up</h2><p class="muted">Gegevens worden alleen in deze browser opgeslagen. Exporteer regelmatig een back-up om uw gegevens te bewaren of naar een ander apparaat te verplaatsen.</p>
+    <button class="sec" onclick="exportData()">⬇ Back-up exporteren (JSON)</button>
+    <label style="display:inline-block;margin-left:8px"><span class="sec" style="padding:8px 14px;border-radius:6px;background:#efe6d8;color:#3b2a1a;cursor:pointer;font-size:.92rem">⬆ Back-up importeren</span>
+    <input type="file" accept=".json" class="hidden" onchange="importData(this)"></label></div>`;
+}
+
+function renderProject(p){
+  const c=calc(p),fin=p.status==='finished';
+  const tabs=[['time','⏱ Tijd'],['materials','🪵 Materialen'],['equipment','🔧 Materieel'],['extras','🚚 Overige kosten'],['details','📝 Details'],['invoice','🧾 Factuur']];
+  let body='';
+  if(view.tab==='time')body=tabTime(p,c);
+  else if(view.tab==='materials')body=tabLines(p,'materials');
+  else if(view.tab==='equipment')body=tabLines(p,'equipment');
+  else if(view.tab==='extras')body=tabLines(p,'extras');
+  else if(view.tab==='details')body=tabDetails(p);
+  else body=tabInvoice(p,c);
+  return`<div class="card">
+    <div style="display:flex;justify-content:space-between;flex-wrap:wrap;gap:8px;align-items:center">
+      <h2 style="margin:0">${esc(p.name)} ${fin?`<span class="pill fin">Afgerond · ${esc(p.invoiceNo)}</span>`:''}</h2>
+      <div>${fin?`<button class="sec" onclick="reopen()">Project heropenen</button>`:`<button class="ok" onclick="finishProject()">✔ Afronden en factuur maken</button>`}
+      <button class="danger" onclick="deleteProject()">Verwijderen</button></div></div>
+    <div class="totals" style="margin-top:12px">
+      <div class="tot">Uren<b id="tot-hours">${fmtH(c.ms)}</b></div>
+      <div class="tot">Arbeid<b id="tot-labor">${money(c.labor)}</b></div>
+      <div class="tot">Materialen<b>${money(c.matBilled)}</b></div>
+      <div class="tot">Materieel<b>${money(c.equip)}</b></div>
+      <div class="tot">Total incl. btw<b id="tot-total">${money(c.total)}</b></div>
+    </div></div>
+  <div class="tabs">${tabs.map(([k,l])=>`<button class="${view.tab===k?'active':''}" onclick="setTab('${k}')">${l}</button>`).join('')}</div>
+  <div class="card">${body}</div>`;
+}
+
+function tabTime(p,c){
+  const es=view.editSession?p.sessions.find(s=>s.id===view.editSession):null;
+  const d=es?new Date(es.start):new Date();
+  const iso=t=>{const x=new Date(t);return x.getFullYear()+'-'+String(x.getMonth()+1).padStart(2,'0')+'-'+String(x.getDate()).padStart(2,'0')};
+  const hm=t=>new Date(t).toTimeString().slice(0,5);
+  const rows=[...p.sessions].sort((a,b)=>b.start-a.start).map(s=>`<tr>
+    <td>${fmtDate(s.start)}</td><td>${fmtTime(s.start)} – ${fmtTime(s.end)}</td><td>${esc(s.note)}</td>
+    <td class="num">${fmtH(sessionMs(s))}</td>
+    <td class="num row-actions"><button type="button" class="small sec" onclick="editSession('${s.id}')">✎</button> <button type="button" class="small danger" aria-label="Deze sessie verwijderen" title="Deze sessie verwijderen" onclick="delSession('${s.id}')">✕</button></td></tr>`).join('');
+  return`<div class="timer-box">
+    <div class="timer" id="live-timer">${p.activeStart?fmtDur(Date.now()-p.activeStart):'0:00:00'}</div>
+    ${p.activeStart
+      ?`<input id="sess-note" placeholder="Waaraan werkt u? (optioneel)" value="${esc(p.activeNote||'')}" oninput="P().activeNote=this.value;save()" style="max-width:420px;margin-bottom:10px"><br><button class="danger" onclick="stopTimer()">■ Sessie stoppen</button>
+        <p class="muted">Gestart ${fmtTime(p.activeStart)}. The timer keeps actief even if you close the browser.</p>`
+      :`<button class="ok" onclick="startTimer()">▶ Sessie starten</button>`}
+  </div>
+  <h3>${es?'Sessie bewerken':'Sessie handmatig toevoegen'}</h3>
+  <div class="grid">
+    <div><label>Datum</label><input type="date" id="ms-date" value="${iso(d)}"></div>
+    <div><label>Begin</label><input type="time" id="ms-start" value="${es?hm(es.start):''}"></div>
+    <div><label>Einde</label><input type="time" id="ms-end" value="${es?hm(es.end):''}"></div>
+    <div><label>Notitie</label><input id="ms-note" value="${esc(es?.note||'')}" placeholder="bijv. balken schaven"></div>
+    <div><button onclick="saveManualSession()">${es?'Save':'+ Add'}</button>${es?` <button class="sec" onclick="view.editSession=null;render()">Annuleren</button>`:''}</div>
+  </div>
+  <h3>Sessies (${p.sessions.length})</h3>
+  <table><tr><th>Datum</th><th>Tijd</th><th>Notitie</th><th class="num">Duur</th><th></th></tr>${rows||'<tr><td colspan="5" class="muted">Nog geen sessies.</td></tr>'}
+  <tr><td colspan="3"><b>Total</b> @ ${money(c.rate)}/h${num(state.settings.rounding)?` <span class="muted">(naar boven afgerond op ${state.settings.rounding} min per sessie)</span>`:''}</td><td class="num"><b>${fmtH(c.ms)}</b></td><td class="num"><b>${money(c.labor)}</b></td></tr></table>`;
+}
+
+const LINECFG={
+  materials:{title:'Materialen',desc:'bijv. Afzelia 60x220x2690',unit:'stuks / m / m² / m³',ph:'Prijs per eenheid'},
+  equipment:{title:'Materieel',desc:'bijv. slijtage zaagblad, gehuurde schuurmachine',unit:'uren / dagen / stuks',ph:'Prijs per eenheid'},
+  extras:{title:'Overige kosten',desc:'bijv. transport, levering, verbruiksmateriaal',unit:'km / ritten / stuks',ph:'Prijs per eenheid'}
+};
+function tabLines(p,type){
+  const cfg=LINECFG[type],list=p[type];
+  const markup=type==='materials'?num(p.materialMarkup):0;
+  const rows=list.map(l=>`<tr><td>${esc(l.desc)}</td><td class="num">${esc(l.qty)}</td><td>${esc(l.unit)}</td>
+    <td class="num">${money(l.price)}</td><td class="num">${money(num(l.qty)*num(l.price))}</td>
+    <td class="num"><button class="small danger" onclick="delLine('${type}','${l.id}')">✕</button></td></tr>`).join('');
+  const sum=list.reduce((a,l)=>a+num(l.qty)*num(l.price),0);
+  return`<h2>${cfg.title}</h2>
+  <div class="grid">
+    <div style="grid-column:span 2"><label>Omschrijving</label><input id="ln-desc" placeholder="${cfg.desc}"></div>
+    <div><label>Aantal</label><input id="ln-qty" inputmode="decimal" value="1"></div>
+    <div><label>Eenheid</label><input id="ln-unit" placeholder="${cfg.unit}"></div>
+    <div><label>${cfg.ph} (${state.settings.currency})</label><input id="ln-price" inputmode="decimal"></div>
+    <div><button onclick="addLine('${type}')">+ Toevoegen</button></div>
+  </div>
+  ${type==='materials'?`<div class="grid" style="margin-top:10px"><div><label>Opslag materiaal %</label>
+    <input inputmode="decimal" value="${esc(p.materialMarkup)}" onchange="P().materialMarkup=this.value;save();render()"></div>
+    <div class="muted">Dekt afval, verwerking en inkooptijd. Wordt op de factuur weergegeven als onderdeel van de prijs per eenheid.</div></div>`:''}
+  <table style="margin-top:12px"><tr><th>Omschrijving</th><th class="num">Aantal</th><th>Eenheid</th><th class="num">Prijs per eenheid</th><th class="num">Bedrag</th><th></th></tr>
+  ${rows||'<tr><td colspan="6" class="muted">Nog niets toegevoegd.</td></tr>'}
+  <tr><td colspan="4"><b>Total</b>${markup?` <span class="muted">(+${markup}% opslag = ${money(sum*(1+markup/100))})</span>`:''}</td><td class="num"><b>${money(sum)}</b></td><td></td></tr></table>`;
+}
+
+function tabDetails(p){
+  const f=(k,l,ph='',t='input')=>`<div><label>${l}</label>${t==='textarea'
+    ?`<textarea rows="3" onchange="P().${k}=this.value;save()">${esc(p[k])}</textarea>`
+    :`<input value="${esc(p[k])}" placeholder="${ph}" onchange="P().${k}=this.value;save();render()">`}</div>`;
+  return`<h2>Project- en klantgegevens</h2><div class="grid">
+    ${f('name','Projectnaam')}${f('client','Klantnaam')}${f('clientAdres','Klantadres')}
+    ${f('clientVat','Btw-nummer klant (optioneel)')}${f('rate','Uurtarief voor dit project',`standaard ${state.settings.defaultRate}`)}
+    ${f('discount','Korting (bedrag excl. btw)','0')}${f('deposit','Deposit already paid (incl. btw)','0')}</div>
+    <div style="margin-top:10px">${f('description','Omschrijving van het werk (op factuur)','','textarea')}</div>`;
+}
+
+function tabInvoice(p,c){
+  const s=state.settings;
+  const invNo=p.invoiceNo||'(concept: wordt toegewezen bij afronden)';
+  const invDate=p.finishedAt||Date.now();
+  const dueDate=invDate+num(s.paymentDays)*86400000;
+  const mk=1+c.markup/100;
+  const showSess=p.showSessions!==false;
+  const lineRows=(list,m=1)=>list.map(l=>`<tr><td>${esc(l.desc)}</td><td class="num">${esc(l.qty)} ${esc(l.unit)}</td><td class="num">${money(num(l.price)*m)}</td><td class="num">${money(num(l.qty)*num(l.price)*m)}</td></tr>`).join('');
+  const section=(t,rows)=>rows?`<h3>${t}</h3><table><tr><th>Omschrijving</th><th class="num">Aantal</th><th class="num">Prijs per eenheid</th><th class="num">Bedrag</th></tr>${rows}</table>`:'';
+  const sessRows=[...p.sessions].sort((a,b)=>a.start-b.start).map(x=>`<tr><td>${fmtDate(x.start)}</td><td>${fmtTime(x.start)}–${fmtTime(x.end)}</td><td>${esc(x.note)}</td><td class="num">${fmtH(sessionMs(x))}</td></tr>`).join('');
+  return`<div style="margin-bottom:12px;display:flex;gap:8px;flex-wrap:wrap;align-items:center">
+    <button onclick="window.print()">🖨 Afdrukken / opslaan als pdf</button>
+    <label style="display:flex;gap:6px;align-items:center;margin:0"><input type="checkbox" style="width:auto" ${showSess?'checked':''} onchange="P().showSessions=this.checked;save();render()"> Sessieoverzicht op factuur tonen</label>
+    ${p.activeStart?'<span class="pill run">Timer still actief — stop it vóór finishing</span>':''}</div>
+  <div id="invoice">
+    <div class="inv-head">
+      <div><h1>FACTUUR</h1><div>Nr. <b>${esc(invNo)}</b></div><div>Date: ${fmtDate(invDate)}</div><div>Vervalt op: ${fmtDate(dueDate)}</div></div>
+      <div style="text-align:right"><b>${esc(s.bizName||'Uw bedrijfsnaam (Instellingen)')}</b><br>${esc(s.bizAdres).replace(/\n/g,'<br>')}
+        ${s.bizVat?`<br>Btw: ${esc(s.bizVat)}`:''}${s.bizEmail?`<br>${esc(s.bizEmail)}`:''}${s.bizTelefoon?`<br>${esc(s.bizTelefoon)}`:''}</div>
+    </div>
+    <div style="margin-top:20px"><span class="muted">Factuur aan:</span><br><b>${esc(p.client||'—')}</b><br>${esc(p.clientAdres)}${p.clientVat?`<br>Btw: ${esc(p.clientVat)}`:''}</div>
+    <h3 style="margin-top:20px">Project: ${esc(p.name)}</h3>${p.description?`<p>${esc(p.description).replace(/\n/g,'<br>')}</p>`:''}
+    <h3>Arbeid</h3><table><tr><th>Omschrijving</th><th class="num">Uren</th><th class="num">Rate</th><th class="num">Bedrag</th></tr>
+      <tr><td>Gewerkte uren</td><td class="num">${c.hours.toFixed(2).replace('.',',')}</td><td class="num">${money(c.rate)}</td><td class="num">${money(c.labor)}</td></tr></table>
+    ${showSess&&sessRows?`<table style="font-size:.8rem;margin-top:4px"><tr><th>Datum</th><th>Tijd</th><th>Activiteit</th><th class="num">Duur</th></tr>${sessRows}</table>`:''}
+    ${section('Materialen',lineRows(p.materials,mk))}
+    ${section('Materieel',lineRows(p.equipment))}
+    ${section('Overige kosten',lineRows(p.extras))}
+    <table class="sum" style="margin-top:20px;width:auto;margin-left:auto">
+      <tr><td>Arbeid</td><td class="num">${money(c.labor)}</td></tr>
+      <tr><td>Materialen</td><td class="num">${money(c.matBilled)}</td></tr>
+      <tr><td>Materieel</td><td class="num">${money(c.equip)}</td></tr>
+      ${c.extra?`<tr><td>Overige kosten</td><td class="num">${money(c.extra)}</td></tr>`:''}
+      ${c.discount?`<tr><td>Korting</td><td class="num">- ${money(c.discount)}</td></tr>`:''}
+      <tr><td><b>Subtotaal excl. btw</b></td><td class="num"><b>${money(c.subtotal)}</b></td></tr>
+      <tr><td>Btw ${c.vatPct}%</td><td class="num">${money(c.vat)}</td></tr>
+      <tr class="grand"><td>Total</td><td class="num">${money(c.total)}</td></tr>
+      ${c.deposit?`<tr><td>Betaalde aanbetaling</td><td class="num">- ${money(c.deposit)}</td></tr><tr class="grand"><td>Te betalen bedrag</td><td class="num">${money(c.due)}</td></tr>`:''}
+    </table>
+    <p style="margin-top:24px">${s.bizIban?`Maak <b>${money(c.due)}</b> over naar <b>${esc(s.bizIban)}</b> met vermelding van <b>${esc(invNo)}</b> vóór ${fmtDate(dueDate)}.<br>`:''}${esc(s.footer)}</p>
+  </div>`;
+}
+
+function renderSettings(){
+  const s=state.settings;
+  const f=(k,l,t='input')=>`<div><label>${l}</label>${t==='textarea'?`<textarea rows="3" onchange="setS('${k}',this.value)">${esc(s[k])}</textarea>`:`<input value="${esc(s[k])}" onchange="setS('${k}',this.value)">`}</div>`;
+  return`<div class="card"><h2>Uw bedrijfsgegevens (op facturen)</h2><div class="grid">
+    ${f('bizName','Bedrijf / uw naam')}${f('bizVat','Btw number')}${f('bizIban','IBAN')}${f('bizEmail','E-mail')}${f('bizTelefoon','Telefoon')}</div>
+    <div style="margin-top:10px">${f('bizAdres','Adres','textarea')}</div></div>
+  <div class="card"><h2>Standaard factuurinstellingen</h2><div class="grid">
+    ${f('defaultRate','Standaarduurtarief')}${f('vatPct','Btw %')}${f('currency','Valutasymbool')}
+    <div><label>Elke sessie naar boven afronden op</label><select onchange="setS('rounding',this.value)">
+      ${[0,5,15,30].map(v=>`<option value="${v}" ${num(s.rounding)===v?'selected':''}>${v?v+' min':'Geen afronding'}</option>`).join('')}</select></div>
+    ${f('invoicePrefix','Factuurprefix')}${f('nextInvoiceNo','Volgend factuurnummer')}${f('paymentDays','Betaaltermijn (dagen)')}</div>
+    <div style="margin-top:10px">${f('footer','Factuurvoetregel','textarea')}</div>
+    <p class="muted">Wijzigingen worden automatisch opgeslagen.</p></div>`;
+}
+
+/* ================= ACTIONS ================= */
+function setS(k,v){state.settings[k]=v;save()}
+function addProject(){
+  const name=document.getElementById('np-name').value.trim();if(!name)return alert('Voer een projectnaam in');
+  const p={id:uid(),name,client:document.getElementById('np-client').value.trim(),clientAdres:'',clientVat:'',description:'',
+    status:'active',rate:'',materialMarkup:0,discount:0,deposit:0,created:Date.now(),sessions:[],materials:[],equipment:[],extras:[],activeStart:null};
+  state.projects.unshift(p);save();view.tab='time';go('project',p.id);
+}
+function deleteProject(){
+  const id=view.projectId;
+  if(!id)return;
+  state.projects=state.projects.filter(p=>p.id!==id);
+  view.projectId=null;
+  view.editSession=null;
+  view.tab='time';
+  save();
+  go('list');
+}
+function startTimer(){
+  const actief=state.projects.find(p=>p.activeStart&&p.id!==view.projectId);
+  if(actief&&confirm(`A timer is actief on "${actief.name}". Stoppen en hier starten?`))stopFor(actief);
+  P().activeStart=Date.now();P().activeNote='';save();render();
+}
+function stopFor(p){p.sessions.push({id:uid(),start:p.activeStart,end:Date.now(),note:p.activeNote||''});p.activeStart=null;p.activeNote='';}
+function stopTimer(){stopFor(P());save();render()}
+function saveManualSession(){
+  const d=document.getElementById('ms-date').value,st=document.getElementById('ms-start').value,en=document.getElementById('ms-end').value;
+  if(!d||!st||!en)return alert('Vul datum, begin- en eindtijd in');
+  const start=new Date(`${d}T${st}`).getTime();let end=new Date(`${d}T${en}`).getTime();
+  if(end<=start)end+=86400000; // past midnight
+  const note=document.getElementById('ms-note').value;
+  const p=P();
+  if(view.editSession){Object.assign(p.sessions.find(s=>s.id===view.editSession),{start,end,note});view.editSession=null}
+  else p.sessions.push({id:uid(),start,end,note});
+  save();render();
+}
+function editSession(id){view.editSession=id;render()}
+function delSession(id){
+  const p=P();
+  if(!p)return;
+  p.sessions=p.sessions.filter(s=>s.id!==id);
+  view.editSession=null;
+  save();
+  render();
+}
+function addLine(type){
+  const g=i=>document.getElementById(i).value.trim();
+  if(!g('ln-desc'))return alert('Voer een omschrijving in');
+  P()[type].push({id:uid(),desc:g('ln-desc'),qty:num(g('ln-qty'))||1,unit:g('ln-unit'),price:num(g('ln-price'))});
+  save();render();document.getElementById('ln-desc').focus();
+}
+function delLine(type,id){P()[type]=P()[type].filter(l=>l.id!==id);save();render()}
+function finishProject(){
+  const p=P();
+  if(p.activeStart){if(!confirm('The timer is still actief. Stop it and finish?'))return;stopFor(p)}
+  const s=state.settings;
+  p.status='finished';p.finishedAt=Date.now();
+  if(!p.invoiceNo){p.invoiceNo=s.invoicePrefix+new Date().getFullYear()+'-'+String(s.nextInvoiceNo).padStart(3,'0');s.nextInvoiceNo=num(s.nextInvoiceNo)+1}
+  save();view.tab='invoice';render();
+}
+function reopen(){P().status='active';save();render()}
+function exportData(){
+  const a=document.createElement('a');a.href=URL.createObjectURL(new Blob([JSON.stringify(state,null,2)],{type:'application/json'}));
+  a.download=`houttracker-back-up-${new Date().toISOString().slice(0,10)}.json`;a.click();
+}
+function importData(inp){
+  const f=inp.files[0];if(!f)return;const r=new FileReader();
+  r.onload=()=>{try{const d=JSON.parse(r.result);if(!d.projects)throw 0;if(confirm('Alle huidige gegevens vervangen door deze back-up?')){state={...defaults,...d,settings:{...defaults.settings,...d.settings}};save();go('list')}}catch(e){alert('Ongeldig back-upbestand')}};
+  r.readAsText(f);
+}
+
+/* ================= LIVE TIMER TICK ================= */
+setInterval(()=>{
+  if(view.page!=='project')return;const p=P();if(!p||!p.activeStart)return;
+  const c=calc(p),t=document.getElementById('live-timer');
+  if(t)t.textContent=fmtDur(Date.now()-p.activeStart);
+  const h=document.getElementById('tot-hours');if(h)h.textContent=fmtH(c.ms);
+  const l=document.getElementById('tot-labor');if(l)l.textContent=money(c.labor);
+  const tt=document.getElementById('tot-total');if(tt)tt.textContent=money(c.total);
+},1000);
+
+render();
+</script>
+</body>
+</html>
